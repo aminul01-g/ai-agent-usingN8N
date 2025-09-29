@@ -1,0 +1,185 @@
+{
+  "name": "Article Summarizer Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "test",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.article_url }}",
+        "options": {}
+      },
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "headerAuth",
+        "httpHeaderValues": {
+          "values": [
+            {
+              "name": "Authorization",
+              "value": "Bearer={{ $env.HF_TOKEN }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "openai/gpt-oss-20b:nebius"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"user\", \"content\": \"Summarize this article in 3-5 concise sentences:\\n\\n\" + $node[\"HTTP Request\"].data.response}]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "AI Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://router.huggingface.co/v1/chat/completions",
+        "authentication": "headerAuth",
+        "httpHeaderValues": {
+          "values": [
+            {
+              "name": "Authorization",
+              "value": "Bearer={{ $env.HF_TOKEN }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "openai/gpt-oss-20b:nebius"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"user\", \"content\": \"Extract 3-5 key insights from this article:\\n\\n\" + $node[\"HTTP Request\"].data.response}]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "AI Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "operation": "appendRow",
+        "documentId": "={{ $credentials.googleSheets.sheetId }}",
+        "sheetName": "Article Summaries",
+        "columns": {
+          "A": "={{ $json.session_id }}",
+          "B": "={{ $json.article_url }}",
+          "C": "={{ $node[\"AI Summary\"].data.choices[0].message.content }}",
+          "D": "={{ $node[\"AI Insights\"].data.choices[0].message.content }}",
+          "E": "={{ $json.email }}"
+        }
+      },
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $credentials.smtp.user }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "Your Article Summary",
+        "text": "=Here's your article summary:\n\n{{ $node[\"AI Summary\"].data.choices[0].message.content }}\n\nKey Insights:\n\n{{ $node[\"AI Insights\"].data.choices[0].message.content }}"
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "AI Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summary": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Insights": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
